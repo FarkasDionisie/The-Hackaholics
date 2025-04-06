@@ -1,1 +1,272 @@
+#include <LiquidCrystal.h>
+
+// LCD setup
+LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+const int buttonPin = A0;
+const int pumpPins[4] = {3, 2, 10, 11};
+
+// Variabile globale
+int menuLevel = 0;
+int currentSelection = 0;
+int selectedMenu = 0; 
+bool shotMode = true;
+bool combineStep = false;
+bool selectingFirst = false;
+bool selectingSecond = false;
+int firstSelection = 0;
+int secondSelection = 0;
+
+// Enum pentru butoane
+enum Button { NONE, RIGHT, UP, DOWN, LEFT, SELECT };
+
+// Structuri
+struct Step {
+  int pumpIndex;
+  unsigned long timeMs;
+};
+
+struct Recipe {
+  String name;
+  int stepCount;
+  Step steps[4]; 
+};
+
+// Rețete
+Recipe cocktails[4] = {
+  {"Sarut Neasteptat", 2, {{0, 6000}, {1, 4000}}},
+  {"Tedi", 2, {{1, 4000}, {2, 4400}}},
+  {"Citrice", 2, {{2, 4400}, {3, 8000}}},
+  {"Tropical", 2, {{0, 6000}, {3, 8000}}}
+};
+
+Recipe seci[4] = {
+  {"rodie", 1, {{0, 3000}}},
+  {"morcovi", 1, {{1, 2000}}},
+  {"portocale", 1, {{2,2200}}},
+  {"mandarine", 1, {{3, 4000}}}
+};
+
+// Funcții
+Button readButton() {
+  int val = analogRead(buttonPin);
+  if (val < 50) return RIGHT;
+  if (val < 200) return UP;
+  if (val < 400) return DOWN;
+  if (val < 600) return LEFT;
+  if (val < 800) return SELECT;
+  return NONE;
+}
+
+void writeCleanLine(int line, String text) {
+  lcd.setCursor(0, line);
+  String padded = text;
+  while (padded.length() < 16) padded += " ";
+  lcd.print(padded.substring(0, 16));
+}
+
+String getPumpName(int pumpIndex) {
+  return seci[pumpIndex].name;
+}
+
+void showMainMenu() {
+  String options[3] = {"Cocktailuri", "Bauturi Seci", "Combina doua"};
+  lcd.clear();
+  delay(5);
+  for (int i = 0; i < 2; i++) {
+    int index = (currentSelection + i) % 3;
+    String line = (i == 0) ? "> " : "  ";
+    line += options[index];
+    writeCleanLine(i, line);
+  }
+}
+
+void updateMenu() {
+  lcd.clear();
+  delay(5);
+
+  if (menuLevel == 0) {
+    showMainMenu();
+  } else if (menuLevel == 1) {
+    writeCleanLine(0, (currentSelection == 0) ? "> Shot" : "  Shot");
+    writeCleanLine(1, (currentSelection == 1) ? "> Long Shot" : "  Long Shot");
+  } else if (menuLevel == 2) {
+    String line0 = "> ";
+    String line1 = "  ";
+    int idx0 = currentSelection;
+    int idx1 = currentSelection + 1;
+
+    if (selectedMenu == 0) {
+      line0 += cocktails[idx0].name;
+      if (idx1 < 4) line1 += cocktails[idx1].name;
+    } else {
+      line0 += seci[idx0].name;
+      if (idx1 < 4) line1 += seci[idx1].name;
+    }
+
+    writeCleanLine(0, line0);
+    writeCleanLine(1, line1);
+  } else if (menuLevel == 3) {
+    if (selectingFirst) {
+      writeCleanLine(0, "Prima bautura:");
+      writeCleanLine(1, "> " + getPumpName(currentSelection));
+    } else if (selectingSecond) {
+      writeCleanLine(0, "A doua bautura:");
+      writeCleanLine(1, "> " + getPumpName(currentSelection));
+    } else {
+      writeCleanLine(0, "> Selecteaza");
+      writeCleanLine(1, "  2 lichide");
+    }
+  }
+}
+
+void runRecipe() {
+  Recipe selected = (selectedMenu == 0) ? cocktails[currentSelection] : seci[currentSelection];
+  for (int i = 0; i < selected.stepCount; i++) {
+    int pump = selected.steps[i].pumpIndex;
+    unsigned long timeMs = selected.steps[i].timeMs;
+    if (!shotMode) timeMs *= 2;
+
+    lcd.clear();
+    digitalWrite(pumpPins[pump], HIGH);
+    delay(timeMs);
+    digitalWrite(pumpPins[pump], LOW);
+    delay(300);
+  }
+
+  delay(100);
+  lcd.begin(16, 2);
+  delay(5);
+  writeCleanLine(0, "Gata!");
+  writeCleanLine(1, "");
+  delay(1500);
+}
+
+void runManualMix(int pump1, int pump2) {
+  lcd.clear();
+  writeCleanLine(0, "Combinare...");
+  writeCleanLine(1, getPumpName(pump1));
+  digitalWrite(pumpPins[pump1], HIGH);
+  delay(4000);
+  digitalWrite(pumpPins[pump1], LOW);
+  delay(300);
+
+  writeCleanLine(1, getPumpName(pump2));
+  digitalWrite(pumpPins[pump2], HIGH);
+  delay(4000);
+  digitalWrite(pumpPins[pump2], LOW);
+  delay(500);
+
+  lcd.clear();
+  writeCleanLine(0, "Gata!");
+  delay(1500);
+}
+
+void setup() {
+  lcd.begin(16, 2);
+  writeCleanLine(0, "Welcome to");
+  writeCleanLine(1, "    Spritzy");
+
+  for (int i = 0; i < 4; i++) {
+    pinMode(pumpPins[i], OUTPUT);
+    digitalWrite(pumpPins[i], LOW);
+  }
+
+  delay(1500);
+  lcd.clear();
+  showMainMenu();
+}
+
+void loop() {
+  Button btn = readButton();
+
+  if (btn == UP) {
+    currentSelection--;
+    if (menuLevel == 0 && currentSelection < 0) currentSelection = 2;
+    if (menuLevel == 1 && currentSelection < 0) currentSelection = 1;
+    if (menuLevel == 2 && currentSelection < 0) currentSelection = 3;
+    if (menuLevel == 3 && currentSelection < 0) currentSelection = 3;
+    updateMenu();
+    delay(200);
+  }
+
+  if (btn == DOWN) {
+    currentSelection++;
+    if (menuLevel == 0 && currentSelection > 2) currentSelection = 0;
+    if (menuLevel == 1 && currentSelection > 1) currentSelection = 0;
+    if (menuLevel == 2 && currentSelection > 3) currentSelection = 0;
+    if (menuLevel == 3 && currentSelection > 3) currentSelection = 0;
+    updateMenu();
+    delay(200);
+  }
+
+  if (btn == SELECT) {
+    if (menuLevel == 0) {
+      selectedMenu = currentSelection;
+      if (selectedMenu == 0) menuLevel = 2;
+      else if (selectedMenu == 1) menuLevel = 1;
+      else if (selectedMenu == 2) {
+        menuLevel = 3;
+        combineStep = false;
+        selectingFirst = false;
+        selectingSecond = false;
+      }
+      currentSelection = 0;
+      updateMenu();
+    } else if (menuLevel == 1) {
+      shotMode = (currentSelection == 0);
+      menuLevel = 2;
+      currentSelection = 0;
+      updateMenu();
+    } else if (menuLevel == 2) {
+      lcd.clear();
+      delay(5);
+      writeCleanLine(0, "Preparare...");
+      writeCleanLine(1, "");
+      delay(500);
+      runRecipe();
+      lcd.clear();
+      delay(5);
+      writeCleanLine(0, "Gata!");
+      writeCleanLine(1, "");
+      delay(1500);
+      menuLevel = 0;
+      currentSelection = 0;
+      showMainMenu();
+    } else if (menuLevel == 3) {
+      if (!combineStep) {
+        lcd.clear();
+        writeCleanLine(0, "Alege prima");
+        writeCleanLine(1, "bautura si SELECT");
+        combineStep = true;
+        selectingFirst = true;
+        currentSelection = 0;
+        delay(1000);
+      } else if (selectingFirst) {
+        firstSelection = currentSelection;
+        selectingFirst = false;
+        selectingSecond = true;
+        lcd.clear();
+        writeCleanLine(0, "Alege a doua");
+        writeCleanLine(1, "bautura si SELECT");
+        currentSelection = 0;
+        delay(1000);
+      } else if (selectingSecond) {
+        secondSelection = currentSelection;
+        runManualMix(firstSelection, secondSelection);
+        menuLevel = 0;
+        currentSelection = 0;
+        showMainMenu();
+      }
+    }
+    delay(300);
+  }
+
+  if (btn == LEFT && menuLevel > 0) {
+    if (menuLevel == 2 && selectedMenu == 0) menuLevel = 0;
+    else menuLevel--;
+    currentSelection = 0;
+    updateMenu();
+    delay(200);
+  }
+}
 
